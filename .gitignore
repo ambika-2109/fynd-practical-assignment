@@ -9,6 +9,7 @@ wireguard-client.conf
 __pycache__/
 .pytest_cache/
 .venv/
+.vscode/
 actions-runner/
 /actions-runner-*.tar.gz
 /.env
