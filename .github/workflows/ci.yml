@@ -4,7 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,48 +41,3 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  deploy:
-    name: Protected lab deployment
-    needs: checks
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    environment: lab-deploy
-    runs-on: [self-hosted, macOS, ARM64, lab-vpn]
-    concurrency:
-      group: fynd-lab-deploy
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check Mac runner prerequisites
-        shell: bash
-        run: |
-          if [[ -x /opt/homebrew/bin/brew ]]; then eval "$(/opt/homebrew/bin/brew shellenv)"; fi
-          test "$(uname -s)" = Darwin || { echo "Deployment runner must be macOS." >&2; exit 1; }
-          test "$(uname -m)" = arm64 || { echo "Deployment runner must be Apple Silicon (ARM64)." >&2; exit 1; }
-          for command in aws terraform wg wg-quick wireguard-go curl openssl python3; do
-            command -v "$command" >/dev/null 2>&1 || { echo "Required command not found: $command" >&2; exit 1; }
-          done
-          sudo -n true || { echo "Runner needs non-interactive sudo for WireGuard." >&2; exit 1; }
-      - name: Check AWS role configuration
-        env:
-          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-        run: test -n "$AWS_ROLE_ARN" || { echo "Set AWS_ROLE_ARN in the protected lab-deploy environment." >&2; exit 1; }
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
-          role-session-name: fynd-lab-${{ github.run_id }}
-      - name: Deploy, connect VPN, and require end-to-end verification
-        env:
-          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
-          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
-          OPERATOR_IP_CIDR: ${{ vars.OPERATOR_IP_CIDR }}
-        run: |
-          test -n "$TF_STATE_BUCKET" || { echo "Set TF_STATE_BUCKET in the protected lab-deploy environment." >&2; exit 1; }
-          # Keep generated deployment secrets outside the cleaned checkout so
-          # later workflow runs reuse the credentials configured on the VMs.
-          export LAB_SECRET_DIR="$HOME/.local/share/fynd-practical-assignment/secrets"
-          bash ./lab.sh deploy

@@ -102,11 +102,16 @@ FILES ADDED OR CHANGED
    cover marker generation, URL construction, and event matching.
 
 10. .github/workflows/ci.yml
-    Runs Terraform format/validation, verifier tests, Trivy, and Gitleaks. Its
-    optional protected deployment job requires a protected GitHub environment
-    and trusted self-hosted Apple Silicon Mac VPN-capable runner.
+    Runs Terraform format/validation, verifier tests, Trivy, and Gitleaks on
+    pull requests and pushes to main. It has no deployment job, so routine CI
+    runs do not show an intentional deployment skip.
 
-11. README.md and .gitignore
+11. .github/workflows/deploy.yml
+    Manual protected deployment workflow. It repeats the checks, gates the
+    deploy job on their success, and requires the protected environment and
+    trusted self-hosted Apple Silicon Mac VPN-capable runner.
+
+12. README.md and .gitignore
     Document usage, architecture, controls, costs, limitations, evidence, and
     CI setup; ignore Terraform state/plans and generated credentials.
 
@@ -151,6 +156,9 @@ B. Evidence and submission details
 [ ] Configure an AWS IAM OIDC provider and a dedicated least-privilege role
     using the trust subject and example in README.md. Set AWS_ROLE_ARN in the
     GitHub lab-deploy environment. Do not attach AdministratorAccess.
+[ ] To deploy from GitHub after setup, open Actions, choose “Protected lab
+    deployment,” select “Run workflow” on main, and start it. The dedicated
+    workflow runs its checks first and starts deployment only if they pass.
 [ ] In GitHub, restrict lab-deploy deployments to main and require an approval
     reviewer. Once OIDC works, remove old static access-key environment secrets
     and deactivate/delete their IAM access keys.
@@ -194,9 +202,11 @@ KNOWN LIMITATIONS / NOT YET VERIFIED
   lab SSM parameters. Separate profiles/policies before production use.
 - No screenshots/evidence, measured effort, or actual billing cost have been
   recorded yet.
-- GitHub CI passed, but its protected deployment job was skipped. Protected
-  environment/runner configuration is not confirmed and is optional when using
-  local deployment.
+- The prior combined CI workflow showed its deployment job as skipped on normal
+    push events by design. CI and manual deployment have now been separated into
+    ci.yml and deploy.yml; confirm the updated checks and use Actions → Protected
+    lab deployment → Run workflow for a deployment. Protected environment/runner
+    configuration is not confirmed and is optional when using local deployment.
 - The state bucket is retained and may incur small storage charges. The EC2
   instances and public IPs may continue incurring charges until teardown.
 - The dashboard uses generated self-signed certificates; that arrangement is

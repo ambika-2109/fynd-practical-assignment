@@ -65,7 +65,7 @@ Do not include private keys, generated passwords, authorization headers, AWS cre
 
 ## CI/CD
 
-`.github/workflows/ci.yml` runs Terraform formatting/validation, verifier unit tests, Trivy filesystem IaC/source checks, and Gitleaks. Deployment is limited to `workflow_dispatch` on `main`, waits for checks, uses a protected GitHub environment named `lab-deploy`, and serializes deploys. It uses GitHub OIDC to obtain short-lived AWS credentials; it does not read AWS access keys from GitHub Secrets.
+`.github/workflows/ci.yml` runs Terraform formatting/validation, verifier unit tests, Trivy filesystem IaC/source checks, and Gitleaks on pull requests and pushes to `main`. `.github/workflows/deploy.yml` is a separate manual workflow (`workflow_dispatch`); it repeats these checks and only starts deployment after they pass. This keeps the deployment job out of normal CI runs instead of showing it as skipped. To deploy from GitHub, open **Actions → Protected lab deployment → Run workflow**, select `main`, then start the run. The deployment uses a protected GitHub environment named `lab-deploy` and serializes deploys. It uses GitHub OIDC to obtain short-lived AWS credentials; it does not read AWS access keys from GitHub Secrets.
 
 To enable OIDC, an AWS administrator must configure the IAM OIDC provider `https://token.actions.githubusercontent.com`, create a dedicated role with a reviewed least-privilege permissions policy for this lab, and set the GitHub environment variable `AWS_ROLE_ARN`. The role trust should require audience `sts.amazonaws.com` and this repository's `lab-deploy` environment subject. This repository was created after GitHub's immutable subject claim rollout, so its default subject is:
 
