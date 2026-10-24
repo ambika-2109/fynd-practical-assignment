@@ -3,43 +3,105 @@ set -Eeuo pipefail
 exec > >(tee -a /var/log/lab-bootstrap.log | logger -t lab-bootstrap -s 2>/dev/console) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
+# On first boot unattended-upgrades often holds the apt lock; wait instead of failing.
+echo 'DPkg::Lock::Timeout "600";' >/etc/apt/apt.conf.d/99lock-timeout
+
 apt-get update
-apt-get install -y ca-certificates curl git docker.io docker-compose-v2 awscli
+apt-get install -y ca-certificates curl git unzip python3 docker.io docker-compose-v2
+
+# Ubuntu 24.04 has no installable "awscli" apt package, so use the official v2 installer.
+if ! command -v aws >/dev/null 2>&1; then
+  curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+  unzip -q -o /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install
+fi
 systemctl enable --now docker
 
 INDEXER_PASSWORD="$(aws ssm get-parameter --name '${indexer_password_parameter}' --with-decryption --query Parameter.Value --output text --region '${aws_region}')"
 API_PASSWORD="$(aws ssm get-parameter --name '${api_password_parameter}' --with-decryption --query Parameter.Value --output text --region '${aws_region}')"
 
-# Wazuh's official single-node deployment persists index, manager and dashboard data
-# on this encrypted 80 GiB root volume. Keep this directory across instance restarts.
 sysctl -w vm.max_map_count=262144
 echo 'vm.max_map_count=262144' >/etc/sysctl.d/99-wazuh.conf
+
+# Wazuh's official single-node deployment; data lives in named Docker volumes on the encrypted root disk.
 install -d -m 0750 /opt/wazuh-docker
-git clone --depth 1 --branch v4.12.0 https://github.com/wazuh/wazuh-docker.git /opt/wazuh-docker
+if [ ! -d /opt/wazuh-docker/.git ]; then
+  git clone --depth 1 --branch "v${wazuh_version}" https://github.com/wazuh/wazuh-docker.git /opt/wazuh-docker
+fi
 cd /opt/wazuh-docker/single-node
 
-cat >.env <<'ENVFILE'
-INDEXER_USERNAME=admin
-INDEXER_PASSWORD=$INDEXER_PASSWORD
-API_USERNAME=wazuh-wui
-API_PASSWORD=$API_PASSWORD
-ENVFILE
-chmod 0600 .env
+# One-time configuration. The marker file makes re-running this script safe.
+if [ ! -f .lab-configured ]; then
+  docker compose -f generate-indexer-certs.yml run --rm generator
 
-# Make the unique verifier marker generate a searchable alert in wazuh-alerts-*.
-RULES=config/wazuh_cluster/rules/local_rules.xml
-if ! grep -q '100100' "$RULES"; then
-  cat >>"$RULES" <<'RULE'
+  hash_pw() {
+    docker run --rm "wazuh/wazuh-indexer:${wazuh_version}" \
+      bash /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$1" | tail -n1
+  }
+  DASH_PASSWORD="Wz-$(openssl rand -hex 12)-Q9."
+  ADMIN_HASH="$(hash_pw "$INDEXER_PASSWORD")"
+  DASH_HASH="$(hash_pw "$DASH_PASSWORD")"
 
+  # The upstream compose file hard-codes its default passwords (it does not read .env),
+  # so replace them in the files directly. Secrets go through the environment, not argv.
+  export INDEXER_PASSWORD API_PASSWORD DASH_PASSWORD ADMIN_HASH DASH_HASH
+  python3 - <<'PY'
+import os
+import pathlib
+import re
+
+
+def edit(path, subs):
+    p = pathlib.Path(path)
+    text = p.read_text()
+    for old, new in subs:
+        if old not in text:
+            raise SystemExit(path + ": expected text not found: " + old)
+        text = text.replace(old, new)
+    p.write_text(text)
+
+
+edit("docker-compose.yml", [
+    ("INDEXER_PASSWORD=SecretPassword", "INDEXER_PASSWORD=" + os.environ["INDEXER_PASSWORD"]),
+    ("DASHBOARD_PASSWORD=kibanaserver", "DASHBOARD_PASSWORD=" + os.environ["DASH_PASSWORD"]),
+    ("API_PASSWORD=MyS3cr37P450r.*-", "API_PASSWORD=" + os.environ["API_PASSWORD"]),
+])
+edit("config/wazuh_dashboard/wazuh.yml", [
+    ('password: "MyS3cr37P450r.*-"', 'password: "' + os.environ["API_PASSWORD"] + '"'),
+])
+
+users = pathlib.Path("config/wazuh_indexer/internal_users.yml")
+text = users.read_text()
+for user, key in (("admin", "ADMIN_HASH"), ("kibanaserver", "DASH_HASH")):
+    pattern = re.compile(r"(^" + user + r':\n  hash: )"[^"]*"', re.M)
+    if not pattern.search(text):
+        raise SystemExit("hash for " + user + " not found in internal_users.yml")
+    text = pattern.sub(lambda m, k=key: m.group(1) + '"' + os.environ[k] + '"', text)
+users.write_text(text)
+PY
+  chmod 0600 docker-compose.yml
+
+  # Custom rule: a request carrying lab_marker= (seen in the WAF's Docker JSON log) raises an alert.
+  # config/wazuh_cluster/rules/ does not exist upstream, so mount the file through the
+  # manager's /wazuh-config-mount, which is copied into /var/ossec on every container start.
+  install -d config/lab
+  cat >config/lab/local_rules.xml <<'RULES'
 <group name="lab,">
   <rule id="100100" level="5">
+    <decoded_as>json</decoded_as>
     <match>lab_marker=</match>
     <description>Lab ingress request marker observed in Docker access logs.</description>
   </rule>
 </group>
-RULE
+RULES
+  cat >docker-compose.override.yml <<'OVERRIDE'
+services:
+  wazuh.manager:
+    volumes:
+      - ./config/lab/local_rules.xml:/wazuh-config-mount/etc/rules/local_rules.xml
+OVERRIDE
+  touch .lab-configured
 fi
 
-docker compose -f generate-indexer-certs.yml run --rm generator
 docker compose up -d
 echo 'Wazuh bootstrap complete.'

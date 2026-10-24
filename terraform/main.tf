@@ -274,12 +274,12 @@ resource "aws_instance" "app" {
   vpc_security_group_ids      = [aws_security_group.app.id]
   iam_instance_profile        = aws_iam_instance_profile.ssm.name
   associate_public_ip_address = true
-  user_data_replace_on_change = true
   user_data = templatefile("${path.module}/app-bootstrap.sh.tftpl", {
     client_public_key    = var.wireguard_client_public_key
     wazuh_manager_ip     = aws_instance.wazuh.private_ip
     server_key_parameter = aws_ssm_parameter.wireguard_server_key.name
     aws_region           = var.aws_region
+    wazuh_version        = var.wazuh_version
   })
 
   root_block_device {
@@ -295,6 +295,12 @@ resource "aws_instance" "app" {
 
   depends_on = [aws_route_table_association.public, aws_iam_role_policy_attachment.ssm, aws_iam_role_policy.lab_secrets]
   tags       = { Name = "${var.name_prefix}-app" }
+
+  # Pin the running app to its current AMI/bootstrap until a deliberate replacement is reviewed.
+  # To intentionally rerun app bootstrap: terraform apply -replace=aws_instance.app
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
 }
 
 resource "aws_instance" "wazuh" {
@@ -304,11 +310,11 @@ resource "aws_instance" "wazuh" {
   vpc_security_group_ids      = [aws_security_group.wazuh.id]
   iam_instance_profile        = aws_iam_instance_profile.ssm.name
   associate_public_ip_address = true
-  user_data_replace_on_change = true
   user_data = templatefile("${path.module}/wazuh-bootstrap.sh.tftpl", {
     indexer_password_parameter = aws_ssm_parameter.indexer_password.name
     api_password_parameter     = aws_ssm_parameter.wazuh_api_password.name
     aws_region                 = var.aws_region
+    wazuh_version              = var.wazuh_version
   })
 
   root_block_device {
@@ -319,11 +325,17 @@ resource "aws_instance" "wazuh" {
   }
 
 
-
   metadata_options {
     http_tokens = "required"
   }
 
   depends_on = [aws_route_table_association.public, aws_iam_role_policy_attachment.ssm, aws_iam_role_policy.lab_secrets]
   tags       = { Name = "${var.name_prefix}-wazuh" }
+
+  # Pin Wazuh to its current AMI/bootstrap until a deliberate replacement is reviewed.
+  # Replacement deletes this instance's root disk and Wazuh Docker volumes unless they are snapshotted.
+  # To intentionally rerun Wazuh bootstrap: terraform apply -replace=aws_instance.wazuh
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
 }

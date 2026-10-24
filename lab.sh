@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$ROOT_DIR/terraform"
-SECRET_DIR="$ROOT_DIR/.secrets"
+SECRET_DIR="${LAB_SECRET_DIR:-$ROOT_DIR/.secrets}"
 WG_CONFIG="$SECRET_DIR/wg-lab.conf"
 REGION="${AWS_REGION:-ap-southeast-2}"
 PREFIX="${LAB_NAME_PREFIX:-fynd-lab}"

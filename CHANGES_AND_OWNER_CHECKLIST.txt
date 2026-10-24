@@ -6,18 +6,16 @@ STATUS SNAPSHOT
 ---------------
 Updated: 2026-10-25
 Repository: ambika-2109/fynd-practical-assignment, branch main
-Previous pushed commit: b061c37 (Ignore local editor settings)
+Current branch: main (see GitHub for latest commit SHA)
 AWS region: ap-southeast-2 (Sydney)
 Terraform state bucket: fynd-lab-tfstate-328064416305-ap-southeast-2
 
-The implementation is committed and pushed. CI passed on earlier revisions; the
-latest security changes are awaiting their CI run. The deployment workflow now
+The supplied source patch is applied locally. Check GitHub Actions for the latest CI result. The deployment workflow now
 uses OIDC, is limited to workflow_dispatch on main, and targets the owner's
 Apple Silicon Mac runner. AWS OIDC role setup, GitHub environment protections,
-and runner registration are still pending. AWS infrastructure was provisioned/
-updated and the two EC2 instances were observed running. End-to-end VPN and
-verifier checks have NOT completed. Do not mark VPN, WAF, Wazuh event-delivery,
-evidence, cost, or teardown complete until recorded.
+and runner registration remain pending. The patch has NOT been applied in AWS.
+AWS infrastructure was previously observed with Wazuh at t3.small. End-to-end
+VPN/verifier checks, evidence, cost, and teardown are not complete.
 
 COMPLETED WORK
 --------------
@@ -29,14 +27,16 @@ COMPLETED WORK
     Wazuh security-group egress to the lab's required destinations/ports.
 [x] Added dated, resource-scoped Trivy suppressions with rationale for required
     dynamic upstream package/container downloads.
-[x] Kept Wazuh at t3.small as directed by the owner. An attempted resize to
-    t3.xlarge was rejected by the account's AWS Free plan restriction; the
-    instance was restarted and observed running as t3.small. This size is below
-    Wazuh's recommended starting size and may affect reliability/performance.
-[x] Confirmed a Terraform plan with the final t3.small configuration showed no
-    infrastructure changes at that time.
-[x] Ran Terraform formatting/validation, verifier unit tests, shell syntax and
-    whitespace checks, and secret/IaC scans locally; they passed.
+[x] An attempted resize from t3.small to t3.xlarge was rejected by the account's
+    Free plan restriction; the instance was restarted and observed at t3.small.
+[x] Patch changes the Wazuh code default to m7i-flex.large (2 vCPU/8 GiB). AWS
+    lists it as Free plan eligible only for accounts created on or after
+    2025-07-15. The family is offered in Sydney, but this account's eligibility
+    and quota are unverified. It remains below Wazuh's 4-vCPU recommendation.
+[ ] Confirm account eligibility and review a fresh Terraform plan. No plan or
+    apply has been run; AWS may still be running t3.small.
+[x] Earlier revision passed Terraform formatting/validation, verifier unit
+    tests, shell syntax/whitespace, and secret/IaC scans.
 [x] Pushed commit 7db6bf2 to main. GitHub CI run 40101133282 passed Terraform,
     verifier, Trivy, and Gitleaks checks. Its protected deployment job was
     skipped; no GitHub Actions deployment was performed.
@@ -47,6 +47,13 @@ COMPLETED WORK
 [x] Updated the deployment workflow to use job-scoped GitHub OIDC, run only for
     manual dispatches from main, and serialize deployments instead of using
     long-lived AWS access-key secrets.
+[x] Applied the supplied patch's bootstrap changes: AWS CLI v2 installation,
+    Wazuh 4.12.0 and agent version pinning, enrollment wait, password setup, and
+    custom-rule mount. Bootstrap changes are ignored for existing instances to
+    prevent automatic replacement.
+[x] Kept the newer OIDC workflow and security changes. The supplied ZIP is an
+    older full-repository snapshot with static AWS key references, so it was not
+    used.
 
 FILES ADDED OR CHANGED
 ----------------------
@@ -61,7 +68,8 @@ FILES ADDED OR CHANGED
 3. terraform/variables.tf
    Declares AWS region, resource prefix, operator CIDR, generated WireGuard keys,
    Wazuh passwords, and EC2 sizes. Secret inputs are marked sensitive. The
-   Wazuh default is t3.small per the owner's choice/account restriction.
+   Wazuh default is m7i-flex.large per the supplied patch; Free Plan eligibility
+   and quota depend on the account and remain unverified.
 
 4. terraform/main.tf
    Provisions VPC, subnet, internet gateway/routes, security groups, Ubuntu EC2
@@ -134,7 +142,8 @@ B. Evidence and submission details
     with HTTP 403; and the fresh marker in Wazuh.
 [ ] Record actual effort/time spent; it was not measured during implementation.
 [ ] Record actual AWS usage/cost for this run from billing. The README does not
-    contain a verified Sydney cost. Include two t3.small instances, 110 GiB gp3,
+    contain a verified Sydney cost. Include app t3.small, Wazuh m7i-flex.large,
+    110 GiB gp3,
     two public IPv4 addresses, transfer, and S3 state storage in any estimate.
 [ ] Update README.md with actual outcomes, effort, cost, and remaining issues.
 [x] Code changes are pushed to the public repository at
@@ -155,6 +164,8 @@ B. Evidence and submission details
     alternative.
 [ ] Before any final commit, confirm `git status` has no .secrets/, Terraform
     state/plans, AWS credentials, WireGuard private key, or passwords staged.
+[ ] Before production reuse, split the shared EC2 instance profile: app should
+    read only the WireGuard server key; Wazuh should read only its own passwords.
 
 C. Teardown after collecting evidence
 [ ] When finished, run:
@@ -175,9 +186,12 @@ KNOWN LIMITATIONS / NOT YET VERIFIED
 ------------------------------------
 - End-to-end local VPN, WAF, and Wazuh event verification remains pending; local
   macOS sudo is required to create the WireGuard interface.
-- Wazuh stays at t3.small by owner choice and AWS account Free plan constraint.
-  This is below the recommended 4-vCPU/8-GiB starting size and could cause
-  resource pressure or unreliable indexing. No resize was completed.
+- The patch sets the Wazuh default to m7i-flex.large, but no AWS apply has
+  occurred; the instance may still be t3.small. m7i-flex.large has 2 vCPU/8 GiB,
+  so it meets the memory recommendation but remains below Wazuh's 4-vCPU
+  recommendation. Eligibility and quota in this account are not confirmed.
+- Both EC2 instances still share one instance profile that can read all three
+  lab SSM parameters. Separate profiles/policies before production use.
 - No screenshots/evidence, measured effort, or actual billing cost have been
   recorded yet.
 - GitHub CI passed, but its protected deployment job was skipped. Protected

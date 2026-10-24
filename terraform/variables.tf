@@ -53,7 +53,13 @@ variable "app_instance_type" {
 }
 
 variable "wazuh_instance_type" {
-  description = "EC2 instance type for Wazuh; t3.small is below Wazuh's recommendation but supported by this account's Free plan."
+  description = "Wazuh EC2 type. m7i-flex.large (2 vCPU / 8 GiB) is Free plan eligible only for qualifying accounts created on/after 2025-07-15; it remains below Wazuh's 4-vCPU recommendation. Check account eligibility and regional quota."
   type        = string
-  default     = "t3.small"
+  default     = "m7i-flex.large"
+}
+
+variable "wazuh_version" {
+  description = "Wazuh version for the manager/indexer/dashboard (git tag of wazuh-docker) and the agent. The agent must not be newer than the manager."
+  type        = string
+  default     = "4.12.0"
 }

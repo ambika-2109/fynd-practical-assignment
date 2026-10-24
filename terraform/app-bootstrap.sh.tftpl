@@ -3,8 +3,17 @@ set -Eeuo pipefail
 exec > >(tee -a /var/log/lab-bootstrap.log | logger -t lab-bootstrap -s 2>/dev/console) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
+# On first boot unattended-upgrades often holds the apt lock; wait instead of failing.
+echo 'DPkg::Lock::Timeout "600";' >/etc/apt/apt.conf.d/99lock-timeout
 apt-get update
-apt-get install -y ca-certificates curl gnupg wireguard iptables awscli
+apt-get install -y ca-certificates curl gnupg unzip netcat-openbsd wireguard iptables
+
+# Ubuntu 24.04 has no installable "awscli" apt package, so use the official v2 installer.
+if ! command -v aws >/dev/null 2>&1; then
+  curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+  unzip -q -o /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install
+fi
 
 SERVER_PRIVATE_KEY="$(aws ssm get-parameter --name '${server_key_parameter}' --with-decryption --query Parameter.Value --output text --region '${aws_region}')"
 
@@ -62,7 +71,7 @@ services:
     environment:
       BACKEND: http://juice-shop:3000
       PORT: "8080"
-      MODSEC_RULE_ENGINE: On
+      MODSEC_RULE_ENGINE: "On"
       PARANOIA: "1"
       ANOMALY_INBOUND: "5"
     ports:
@@ -86,10 +95,16 @@ cat >/opt/juice-lab/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf <<'WAFRULE'
 SecRule ARGS:lab_block "@streq 1" "id:100100,phase:1,deny,status:403,log,msg:'Lab deterministic block rule'"
 WAFRULE
 # Install and enroll the host agent. The manager's enrollment port is SG-limited to this VM.
+# The Wazuh VM boots in parallel, so wait (up to ~30 min) for its enrollment port first.
+for _ in $(seq 1 180); do
+  nc -z -w 3 '${wazuh_manager_ip}' 1515 && break
+  sleep 10
+done
 curl -fsSL https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
 echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" >/etc/apt/sources.list.d/wazuh.list
 apt-get update
-WAZUH_MANAGER='${wazuh_manager_ip}' WAZUH_AGENT_NAME='juice-waf-host' apt-get install -y wazuh-agent
+# Pin the agent: Wazuh agents must not be newer than the manager (4.12.0 here).
+WAZUH_MANAGER='${wazuh_manager_ip}' WAZUH_AGENT_NAME='juice-waf-host' apt-get install -y 'wazuh-agent=${wazuh_version}-1'
 
 # Collect Docker's JSON log stream, including the WAF's access log request URI.
 python3 - <<'PY'

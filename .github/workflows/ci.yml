@@ -83,4 +83,7 @@ jobs:
           OPERATOR_IP_CIDR: ${{ vars.OPERATOR_IP_CIDR }}
         run: |
           test -n "$TF_STATE_BUCKET" || { echo "Set TF_STATE_BUCKET in the protected lab-deploy environment." >&2; exit 1; }
+          # Keep generated deployment secrets outside the cleaned checkout so
+          # later workflow runs reuse the credentials configured on the VMs.
+          export LAB_SECRET_DIR="$HOME/.local/share/fynd-practical-assignment/secrets"
           bash ./lab.sh deploy
