@@ -63,7 +63,38 @@ Do not include private keys, generated passwords, authorization headers, AWS cre
 
 ## CI/CD
 
-`.github/workflows/ci.yml` runs Terraform formatting/validation, verifier unit tests, Trivy filesystem IaC/source checks, and Gitleaks. Deployment is available only through `workflow_dispatch`, depends on all checks, and uses a protected GitHub environment named `lab-deploy`. Configure protected AWS credentials as `LAB_AWS_ACCESS_KEY_ID` and `LAB_AWS_SECRET_ACCESS_KEY`, and environment variables `TF_STATE_BUCKET`, `AWS_REGION`, and `OPERATOR_IP_CIDR`. The deploy job requires a trusted self-hosted Apple Silicon Mac runner labeled `lab-vpn`, with the default `self-hosted`, `macOS`, and `ARM64` labels, Terraform, AWS CLI, WireGuard tools (`wg`, `wg-quick`, and `wireguard-go`), and non-interactive sudo permission to manage a WireGuard interface. Download the macOS ARM64 runner package shown by GitHub, not the Linux x64 package. Protect the environment with required reviewers and restrict who can dispatch deployments. Keep this runner dedicated to trusted workflows because the deployment job receives AWS credentials and can manage the local VPN interface.
+`.github/workflows/ci.yml` runs Terraform formatting/validation, verifier unit tests, Trivy filesystem IaC/source checks, and Gitleaks. Deployment is limited to `workflow_dispatch` on `main`, waits for checks, uses a protected GitHub environment named `lab-deploy`, and serializes deploys. It uses GitHub OIDC to obtain short-lived AWS credentials; it does not read AWS access keys from GitHub Secrets.
+
+To enable OIDC, an AWS administrator must configure the IAM OIDC provider `https://token.actions.githubusercontent.com`, create a dedicated role with a reviewed least-privilege permissions policy for this lab, and set the GitHub environment variable `AWS_ROLE_ARN`. The role trust should require audience `sts.amazonaws.com` and this repository's `lab-deploy` environment subject. This repository was created after GitHub's immutable subject claim rollout, so its default subject is:
+
+```text
+repo:ambika-2109@59207745/fynd-practical-assignment@1432098598:environment:lab-deploy
+```
+
+Example trust relationship for AWS account `328064416305`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::328064416305:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:ambika-2109@59207745/fynd-practical-assignment@1432098598:environment:lab-deploy"
+      }
+    }
+  }]
+}
+```
+
+In GitHub, configure `AWS_ROLE_ARN`, `TF_STATE_BUCKET`, `AWS_REGION`, and `OPERATOR_IP_CIDR` in `lab-deploy`; restrict its deployment branches to `main` and require an approval reviewer. The trust policy scopes which repository environment can assume the role; the environment branch rule further restricts which branch may use it. Give the AWS role only the permissions needed to manage this lab and state bucket; do not attach `AdministratorAccess`. After OIDC authentication succeeds, remove any old `LAB_AWS_ACCESS_KEY_ID` and `LAB_AWS_SECRET_ACCESS_KEY` environment secrets and deactivate/delete their IAM access keys.
+
+The deploy job requires a trusted self-hosted Apple Silicon Mac runner labeled `lab-vpn`, with the default `self-hosted`, `macOS`, and `ARM64` labels, Terraform, AWS CLI, WireGuard tools (`wg`, `wg-quick`, and `wireguard-go`), and non-interactive sudo permission to manage a WireGuard interface. Download the macOS ARM64 runner package shown by GitHub, not the Linux x64 package. Keep this runner dedicated to trusted workflows because it receives temporary AWS credentials and can manage the local VPN interface. See [GitHub's AWS OIDC guide](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [GitHub's OIDC subject claim reference](https://docs.github.com/en/actions/reference/security/oidc), and [AWS IAM's GitHub OIDC guidance](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html).
 
 Juice Shop is intentionally vulnerable and is not scanned as a built image. Trivy and Gitleaks checks remain enabled for the candidate repository and IaC.
 

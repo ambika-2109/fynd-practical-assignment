@@ -6,18 +6,18 @@ STATUS SNAPSHOT
 ---------------
 Updated: 2026-10-25
 Repository: ambika-2109/fynd-practical-assignment, branch main
-Previous pushed commit: 7db6bf2 (Complete Terraform lab assignment)
+Previous pushed commit: b061c37 (Ignore local editor settings)
 AWS region: ap-southeast-2 (Sydney)
 Terraform state bucket: fynd-lab-tfstate-328064416305-ap-southeast-2
 
-The assignment implementation is committed and pushed. Local checks and GitHub
-CI passed on that revision. The deployment job waited because no Linux runner was
-online. The workflow is now being changed to target the owner's Apple Silicon Mac;
-the runner still needs registration and the updated workflow must be pushed and
-dispatched. AWS infrastructure was provisioned/updated and the two EC2 instances
-were observed running. The deploy script has NOT completed local WireGuard and
-end-to-end verification. Do not mark VPN, WAF, Wazuh event-delivery, evidence,
-cost, or teardown as complete until the owner records the results below.
+The implementation is committed and pushed. CI passed on earlier revisions; the
+latest security changes are awaiting their CI run. The deployment workflow now
+uses OIDC, is limited to workflow_dispatch on main, and targets the owner's
+Apple Silicon Mac runner. AWS OIDC role setup, GitHub environment protections,
+and runner registration are still pending. AWS infrastructure was provisioned/
+updated and the two EC2 instances were observed running. End-to-end VPN and
+verifier checks have NOT completed. Do not mark VPN, WAF, Wazuh event-delivery,
+evidence, cost, or teardown complete until recorded.
 
 COMPLETED WORK
 --------------
@@ -41,6 +41,12 @@ COMPLETED WORK
     verifier, Trivy, and Gitleaks checks. Its protected deployment job was
     skipped; no GitHub Actions deployment was performed.
 [x] Confirmed generated secrets and Terraform state were excluded from Git.
+[x] Removed the incomplete self-hosted runner package/extraction from the repo
+    directory and added ignore rules for credentials, state, runner artifacts,
+    and local editor settings.
+[x] Updated the deployment workflow to use job-scoped GitHub OIDC, run only for
+    manual dispatches from main, and serialize deployments instead of using
+    long-lived AWS access-key secrets.
 
 FILES ADDED OR CHANGED
 ----------------------
@@ -133,9 +139,14 @@ B. Evidence and submission details
 [ ] Update README.md with actual outcomes, effort, cost, and remaining issues.
 [x] Code changes are pushed to the public repository at
     https://github.com/ambika-2109/fynd-practical-assignment. GitHub CI passed.
-[ ] If using GitHub's optional deployment job, configure protected environment
-    lab-deploy, protected AWS credentials (prefer OIDC), AWS_REGION,
-    TF_STATE_BUCKET, OPERATOR_IP_CIDR, and a trusted isolated self-hosted Apple
+[ ] Configure an AWS IAM OIDC provider and a dedicated least-privilege role
+    using the trust subject and example in README.md. Set AWS_ROLE_ARN in the
+    GitHub lab-deploy environment. Do not attach AdministratorAccess.
+[ ] In GitHub, restrict lab-deploy deployments to main and require an approval
+    reviewer. Once OIDC works, remove old static access-key environment secrets
+    and deactivate/delete their IAM access keys.
+[ ] For GitHub deployment, configure AWS_REGION, TF_STATE_BUCKET,
+    OPERATOR_IP_CIDR, and a trusted isolated self-hosted Apple
     Silicon Mac runner labeled self-hosted, macOS, ARM64, and lab-vpn. Install
     Terraform, AWS CLI, WireGuard tools (wg, wg-quick, wireguard-go), curl,
     OpenSSL, and Python 3; configure

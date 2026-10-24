@@ -46,11 +46,15 @@ jobs:
   deploy:
     name: Protected lab deployment
     needs: checks
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment: lab-deploy
     runs-on: [self-hosted, macOS, ARM64, lab-vpn]
+    concurrency:
+      group: fynd-lab-deploy
+      cancel-in-progress: false
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - name: Check Mac runner prerequisites
@@ -63,11 +67,15 @@ jobs:
             command -v "$command" >/dev/null 2>&1 || { echo "Required command not found: $command" >&2; exit 1; }
           done
           sudo -n true || { echo "Runner needs non-interactive sudo for WireGuard." >&2; exit 1; }
+      - name: Check AWS role configuration
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+        run: test -n "$AWS_ROLE_ARN" || { echo "Set AWS_ROLE_ARN in the protected lab-deploy environment." >&2; exit 1; }
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.LAB_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.LAB_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+          role-session-name: fynd-lab-${{ github.run_id }}
       - name: Deploy, connect VPN, and require end-to-end verification
         env:
           TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
