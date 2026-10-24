@@ -1,5 +1,7 @@
 # Terraform WAF + Wazuh practical lab
 
+[![CI](https://github.com/ambika-2109/fynd-practical-assignment/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ambika-2109/fynd-practical-assignment/actions/workflows/ci.yml)
+
 An AWS-based, two-VM lab provisioned by Terraform. It is designed for a short assessment run and is **not a production deployment**. The deployment command returns success only after the VPN is connected, the application and Indexer are ready, the WAF allows a normal request and blocks a deterministic test, and the fresh request marker is searchable in Wazuh.
 
 ## Prerequisites
