@@ -1,0 +1,101 @@
+FYND DEVOPS PRACTICAL ASSIGNMENT
+CHANGES SUMMARY AND OWNER CHECKLIST
+===================================
+
+PURPOSE
+-------
+This file summarizes the implementation and remaining submission actions. AWS resources currently exist in ap-southeast-2, but the deploy script has not completed end-to-end verification. Do not treat VPN, WAF, Wazuh event-delivery, cost, or evidence checks as completed until they pass and results are recorded.
+
+FILES ADDED OR CHANGED
+----------------------
+
+1. terraform/versions.tf
+   Pins the supported Terraform/provider configuration and configures the AWS provider, region, and standard tags.
+
+2. terraform/backend.tf
+   Configures an encrypted S3 remote backend with native S3 state locking. The bucket name and region are supplied by lab.sh at initialization.
+
+3. terraform/variables.tf
+   Declares AWS region, resource prefix, operator CIDR, generated WireGuard keys, Wazuh passwords, and EC2 sizes. Secret inputs are marked sensitive.
+
+4. terraform/main.tf
+   Provisions the VPC, subnet, internet gateway/routes, security groups, Ubuntu EC2 instances, encrypted disks, SSM instance role/profile, SSM SecureString secret parameters, and a restricted parameter-read policy. Creates an app/VPN VM and a separate Wazuh VM. The app VM is the only public VPN endpoint; application/Wazuh services are security-group restricted.
+
+5. terraform/outputs.tf
+   Exposes the addresses needed by the local VPN connection and verifier.
+
+6. terraform/app-bootstrap.sh.tftpl
+   Bootstraps WireGuard, Docker, ModSecurity/OWASP CRS, Juice Shop, the Wazuh agent, and Docker JSON log collection. A deterministic ModSecurity rule blocks the lab_block=1 query with HTTP 403. The Juice Shop container port is not published directly.
+
+7. terraform/wazuh-bootstrap.sh.tftpl
+   Installs Wazuh's Docker single-node deployment (manager, Indexer, and dashboard), configures credentials and a lab marker alert rule, and uses persistent Docker volumes on the encrypted Wazuh disk.
+
+8. lab.sh
+   Provides deploy, verify, and destroy commands. It bootstraps/configures the encrypted, versioned, private S3 state bucket; generates local WireGuard keys and passwords; runs Terraform; brings up the local VPN; and runs the end-to-end verifier. Destroy removes lab infrastructure but intentionally retains the state bucket.
+
+9. scripts/verify_lab.py
+   Performs bounded readiness checks, confirms an allowed application request and a deterministic blocked request, sends a fresh unique marker, and polls the authenticated Wazuh Indexer API until the event is searchable. Failures exit nonzero.
+
+10. tests/test_verify_lab.py
+    Unit tests for unique marker creation, URL construction, and locating a marker in a Wazuh event document.
+
+11. .github/workflows/ci.yml
+    CI checks Terraform format/validation, verifier unit tests, Trivy filesystem scanning, and Gitleaks. A manual deployment job depends on the checks and is intended for a protected GitHub environment and trusted self-hosted Linux VPN-capable runner.
+
+12. README.md
+    Documents prerequisites, usage, architecture, security controls, evidence, CI configuration, approximate cost, and known unverified items.
+
+13. .gitignore
+    Excludes Terraform state/plans, generated credentials, WireGuard client configuration, local state-bucket metadata, and Python cache files.
+
+OWNER CHECKLIST — REQUIRED BEFORE SUBMISSION
+--------------------------------------------
+
+A. Review and prepare
+[ ] Review every Terraform resource and bootstrap script; confirm image/tag and upstream deployment compatibility before spending money.
+[ ] Confirm the AWS account is eligible for trial credit and check its expiration and regional pricing.
+[ ] Install Terraform 1.10+, AWS CLI v2, WireGuard tools (wg/wg-quick), curl, OpenSSL, and Python 3.10+ on the deployment computer.
+[ ] Configure AWS credentials for a non-root operator identity. Grant only the required permissions to create the listed EC2/VPC/security-group/IAM/SSM resources and create/configure/access the state bucket. Do not place credentials in this repository.
+[ ] Choose the AWS region and an operator public IPv4 CIDR. Prefer a stable current IP /32. If autodetection would be wrong, set OPERATOR_IP_CIDR explicitly.
+[ ] Review estimated instance types and disk sizes against account quotas and current prices. Wazuh is memory-intensive; do not reduce memory without checking resource requirements.
+[ ] Confirm local sudo is available for bringing up/down the WireGuard interface.
+
+B. Run the lab and validate it live
+[ ] From the repository directory, run with the Sydney bucket: AWS_REGION=ap-southeast-2 TF_STATE_BUCKET=fynd-lab-tfstate-328064416305-ap-southeast-2 bash ./lab.sh deploy
+[ ] If prompted, enter the local machine's sudo password in the terminal. Never send it to chat.
+[ ] Wait for the command to finish. A successful Terraform apply alone is insufficient; require the script's final DEPLOYMENT VERIFIED output.
+[ ] If the command fails, inspect Terraform/cloud-init/SSM/Docker/Wazuh logs, fix the cause, then rerun. Check /var/log/lab-bootstrap.log on the relevant VM through AWS Systems Manager Session Manager; do not open public SSH for convenience.
+[ ] Confirm the WireGuard tunnel is active with sudo wg show.
+[ ] From the VPN, open Juice Shop through the private app URL and the Wazuh dashboard through https://<WAZUH_PRIVATE_IP>. Expect a browser trust warning because the lab dashboard certificate is self-signed; do not reuse this TLS arrangement for production.
+[ ] Confirm the direct public app-origin address is not reachable on HTTP and that the security group permits UDP 51820 only from the intended operator CIDR.
+[ ] Confirm verifier evidence for a normal allowed request and a request with lab_block=1 returning HTTP 403.
+[ ] Confirm the verifier reports a fresh marker and locate that matching event in Wazuh. Save redacted screenshots or text evidence for the VPN, both WAF outcomes, and the new Wazuh event.
+[ ] Rerun: bash ./lab.sh verify. Confirm it passes without replacing the Wazuh VM or losing indexed data.
+[ ] Record actual elapsed implementation/deployment/testing effort; it was not measured here.
+[ ] Record actual cloud cost/usage from billing after the run; the README amount is only an estimate and is not verified.
+
+C. Configure CI/CD if submitting the workflow
+[ ] Push the repository to the intended GitHub repository and verify no credentials, .secrets/, state, or plans are tracked.
+[ ] In GitHub, create a protected environment named lab-deploy. Restrict deployment branches and require reviewer approval as appropriate.
+[ ] Add LAB_AWS_ACCESS_KEY_ID and LAB_AWS_SECRET_ACCESS_KEY as protected environment secrets. Prefer short-lived/OIDC role credentials if you update the workflow to use OIDC; do not use root credentials.
+[ ] Configure TF_STATE_BUCKET, AWS_REGION, and OPERATOR_IP_CIDR environment variables.
+[ ] Register a trusted, isolated Linux self-hosted GitHub Actions runner with labels self-hosted, linux, lab-vpn. Install Terraform, AWS CLI, Docker, WireGuard tools, Python, and the needed sudo permission. Do not expose a privileged self-hosted runner to untrusted pull requests.
+[ ] Run pull-request/push checks and confirm Terraform validation, tests, Trivy, and Gitleaks all pass.
+[ ] Manually dispatch deployment only from a protected branch after reviewing changes; confirm the deploy job is gated on successful checks and protected approval.
+[ ] The workflow's Trivy scan uses a pinned container tag; review/update tool versions under normal dependency maintenance.
+
+D. Teardown and protect artifacts
+[ ] After collecting evidence, run: bash ./lab.sh destroy
+[ ] Confirm the EC2 instances and lab networking are removed in AWS. Check the S3 bucket separately: it is intentionally retained with encrypted/versioned state and may have small storage charges.
+[ ] Keep or delete the state bucket only after confirming infrastructure has been destroyed and deciding whether state history is still needed. If deleting, remove object versions as well as the bucket.
+[ ] Remove generated local .secrets/ files only after deciding whether another verify/destroy operation is needed. Keep them out of commits and evidence.
+[ ] Redact private IPs if required by the evaluator, and always redact private keys, passwords, AWS credentials, API authorization headers, and Terraform state.
+[ ] Update README.md with actual test/deployment outcome, measured effort, cost, and any remaining failures or incomplete items.
+
+KNOWN UNVERIFIED / NOT DONE IN THIS WORKSPACE
+---------------------------------------------
+- AWS infrastructure exists, but the local VPN setup and end-to-end verifier have not completed. The Wazuh VM remains t3.small because the AWS Free plan rejected the recommended t3.xlarge size.
+- Terraform CLI formatting, initialization, and validate were not run here. The workflow includes those checks, and they must pass before deployment/submission.
+- No live screenshots/evidence, actual cost, or actual effort measurement was produced.
+- GitHub environment, protected credentials, runner, repository settings, and workflow dispatch were not configured.
+- Unit tests and shell syntax/whitespace checks were run locally and passed; these checks do not replace live cloud verification.

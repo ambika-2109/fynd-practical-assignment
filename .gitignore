@@ -1,0 +1,11 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+.secrets/
+.lab-state-bucket
+wireguard-client.conf
+__pycache__/
+.pytest_cache/
+.venv/

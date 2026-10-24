@@ -1,0 +1,68 @@
+name: Validate and deploy lab
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Terraform, verifier, IaC, and secret checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Terraform format, initialize, and validate
+        run: |
+          terraform fmt -check -recursive terraform
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate
+
+      - name: Test verifier helpers
+        run: python -m unittest discover -s tests -v
+
+      - name: Scan IaC and source for misconfiguration and vulnerabilities
+        run: >-
+          docker run --rm -v "$PWD:/src" aquasec/trivy:0.58.1 fs
+          --scanners misconfig,vuln --severity HIGH,CRITICAL --exit-code 1 /src
+
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    name: Protected lab deployment
+    needs: checks
+    if: github.event_name == 'workflow_dispatch'
+    environment: lab-deploy
+    runs-on: [self-hosted, linux, lab-vpn]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.LAB_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.LAB_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+      - name: Deploy, connect VPN, and require end-to-end verification
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+          OPERATOR_IP_CIDR: ${{ vars.OPERATOR_IP_CIDR }}
+        run: |
+          test -n "$TF_STATE_BUCKET" || { echo "Set TF_STATE_BUCKET in the protected lab-deploy environment." >&2; exit 1; }
+          bash ./lab.sh deploy
