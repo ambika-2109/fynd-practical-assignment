@@ -10,3 +10,12 @@ __pycache__/
 .pytest_cache/
 .venv/
 actions-runner/
+/actions-runner-*.tar.gz
+/.env
+/.path
+/config.sh
+/env.sh
+/externals/
+/run-helper.*
+/run.sh
+/safe_sleep.sh
