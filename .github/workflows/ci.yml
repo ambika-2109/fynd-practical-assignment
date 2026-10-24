@@ -48,11 +48,21 @@ jobs:
     needs: checks
     if: github.event_name == 'workflow_dispatch'
     environment: lab-deploy
-    runs-on: [self-hosted, linux, lab-vpn]
+    runs-on: [self-hosted, macOS, ARM64, lab-vpn]
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Check Mac runner prerequisites
+        shell: bash
+        run: |
+          if [[ -x /opt/homebrew/bin/brew ]]; then eval "$(/opt/homebrew/bin/brew shellenv)"; fi
+          test "$(uname -s)" = Darwin || { echo "Deployment runner must be macOS." >&2; exit 1; }
+          test "$(uname -m)" = arm64 || { echo "Deployment runner must be Apple Silicon (ARM64)." >&2; exit 1; }
+          for command in aws terraform wg wg-quick wireguard-go curl openssl python3; do
+            command -v "$command" >/dev/null 2>&1 || { echo "Required command not found: $command" >&2; exit 1; }
+          done
+          sudo -n true || { echo "Runner needs non-interactive sudo for WireGuard." >&2; exit 1; }
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.LAB_AWS_ACCESS_KEY_ID }}

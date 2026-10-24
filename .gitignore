@@ -9,3 +9,4 @@ wireguard-client.conf
 __pycache__/
 .pytest_cache/
 .venv/
+actions-runner/

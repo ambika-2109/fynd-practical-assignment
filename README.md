@@ -5,7 +5,7 @@ An AWS-based, two-VM lab provisioned by Terraform. It is designed for a short as
 ## Prerequisites
 
 - AWS account/eligible trial credit and credentials configured with AWS CLI (`aws configure` or environment credentials).
-- Terraform 1.10+, AWS CLI v2, `wireguard-tools` (`wg` and `wg-quick`), `curl`, `openssl`, and Python 3.10+.
+- Terraform 1.10+, AWS CLI v2, WireGuard tools (`wg`, `wg-quick`, and `wireguard-go` on macOS), `curl`, `openssl`, and Python 3.10+.
 - IAM permissions to create the listed EC2/VPC/IGW/route/security-group/IAM instance-profile resources, and S3 access to the Terraform state bucket. The script can create/configure its default bucket, or use a dedicated bucket provisioned by an administrator with `TF_STATE_BUCKET`. Do not use root credentials.
 - On macOS, install WireGuard tools and allow `sudo` to create the VPN interface. The generated peer file is also importable in the WireGuard GUI.
 - An internet connection from both VMs for package/image downloads. The lab creates two public IPv4 addresses; only the VPN listener is reachable from the internet.
@@ -63,7 +63,7 @@ Do not include private keys, generated passwords, authorization headers, AWS cre
 
 ## CI/CD
 
-`.github/workflows/ci.yml` runs Terraform formatting/validation, verifier unit tests, Trivy filesystem IaC/source checks, and Gitleaks. Deployment is available only through `workflow_dispatch`, depends on all checks, and uses a protected GitHub environment named `lab-deploy`. Configure protected AWS credentials as `LAB_AWS_ACCESS_KEY_ID` and `LAB_AWS_SECRET_ACCESS_KEY`, and environment variables `TF_STATE_BUCKET`, `AWS_REGION`, and `OPERATOR_IP_CIDR`. The deploy job intentionally requires a trusted self-hosted Linux runner labeled `lab-vpn` with Terraform, AWS CLI, WireGuard tools, `sudo`, and permission to manage a WireGuard interface; a disposable hosted runner cannot provide the required VPN interface/networking. Protect the environment with required reviewers and restrict who can dispatch deployments.
+`.github/workflows/ci.yml` runs Terraform formatting/validation, verifier unit tests, Trivy filesystem IaC/source checks, and Gitleaks. Deployment is available only through `workflow_dispatch`, depends on all checks, and uses a protected GitHub environment named `lab-deploy`. Configure protected AWS credentials as `LAB_AWS_ACCESS_KEY_ID` and `LAB_AWS_SECRET_ACCESS_KEY`, and environment variables `TF_STATE_BUCKET`, `AWS_REGION`, and `OPERATOR_IP_CIDR`. The deploy job requires a trusted self-hosted Apple Silicon Mac runner labeled `lab-vpn`, with the default `self-hosted`, `macOS`, and `ARM64` labels, Terraform, AWS CLI, WireGuard tools (`wg`, `wg-quick`, and `wireguard-go`), and non-interactive sudo permission to manage a WireGuard interface. Download the macOS ARM64 runner package shown by GitHub, not the Linux x64 package. Protect the environment with required reviewers and restrict who can dispatch deployments. Keep this runner dedicated to trusted workflows because the deployment job receives AWS credentials and can manage the local VPN interface.
 
 Juice Shop is intentionally vulnerable and is not scanned as a built image. Trivy and Gitleaks checks remain enabled for the candidate repository and IaC.
 
