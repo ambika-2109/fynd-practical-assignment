@@ -211,3 +211,105 @@ KNOWN LIMITATIONS / NOT YET VERIFIED
   instances and public IPs may continue incurring charges until teardown.
 - The dashboard uses generated self-signed certificates; that arrangement is
   only suitable for this private disposable lab, not production.
+-----------------------
+# The assignment in plain words
+
+## The big picture
+
+They want to see whether you can build a small, secure, monitored system **entirely with code**, so that anyone can type one command and get the same result. Nothing should be clicked in a console or set up by hand.
+
+Think of a small office building with a locked front door:
+- **A shop** that is deliberately full of security holes (Juice Shop).
+- **A security guard** standing in front of the shop (the WAF).
+- **A VPN tunnel**, so only you can reach the building.
+- **A security camera room** that records everything (Wazuh).
+- **A test** that proves the guard blocks bad visitors and the cameras recorded the visit (the verifier).
+- **An automated checker** that inspects your blueprints before building anything (CI/CD).
+
+## What is given
+
+- A checklist of 7 things to build.
+- A time budget (1 to 2 hours) and permission to use AI and existing modules.
+- A cost limit: two small VMs and free tools, using trial credits.
+- Suggested tools, which you may swap for others.
+
+## What is expected, piece by piece
+
+**1. Terraform and one command.** Terraform is a tool where you describe infrastructure in text files ("I want 2 servers, this network, these firewall rules") and it creates them. "One command" means a reviewer runs something like `./lab.sh deploy` and the whole lab appears.
+
+**2. Application: OWASP Juice Shop.** This is a web shop built to be hacked, used for practice. You run it on Kubernetes (K3s is a light version) or just in Docker. Docker is accepted.
+
+**3. Wazuh on a separate VM.** Wazuh is a free security monitoring system with three parts:
+- **Manager** receives and analyses events.
+- **Indexer** is the searchable database (the "camera recordings").
+- **Dashboard** is the web UI.
+
+On the app VM you also install a Wazuh **agent**. It reads the app's logs and sends them to the manager ("enrollment" means registering the agent with the manager). "Persist data" means the recordings survive restarts and reruns.
+
+**4. VPN.** WireGuard creates an encrypted private tunnel from your laptop into the cloud network. Wazuh and the app are reachable only through it, not from the open internet.
+
+**5. WAF (Web Application Firewall).** It sits between visitors and Juice Shop and inspects each request. You must show:
+- one **normal** request that passes (HTTP 200);
+- one **attack** request that is always blocked (HTTP 403). "Deterministic" means it blocks every time, not by chance.
+
+"No direct-origin bypass" means you must not be able to skip the guard and talk to Juice Shop directly. Juice Shop's port must be private.
+
+**6. Cloud security.**
+- Open only the firewall ports you need.
+- Give each server only the permissions it needs (least privilege).
+- Never commit passwords, keys or Terraform **state** (the file recording what Terraform built, which may contain secrets). Keep state in a locked, encrypted bucket.
+- Document **TLS** (encryption in transit): where traffic is encrypted, where it isn't, and why.
+
+**7. The verifier.** This is a script that proves it all works end to end:
+1. Check everything is ready, with timeouts so it can't hang forever.
+2. Send a request containing a new random **marker** (such as `fyndlab-8f3a…`).
+3. Ask Wazuh's Indexer API: "did you record this exact marker?"
+4. Exit with an error code if anything fails.
+
+It proves the whole chain: request, WAF, app log, agent, manager, indexer. To make Wazuh turn that log line into a searchable alert, you add a small **custom rule** ("if a log contains `lab_marker=`, raise an alert"). The deploy only counts as successful if the verifier passes. Reruns must not wipe Wazuh's data.
+
+**8. CI/CD.** This is an automatic pipeline (GitHub Actions) that runs on every push:
+- **Validate** the Terraform and **test** the verifier.
+- **Scan** with Trivy (misconfigurations in the infrastructure code) and Gitleaks (accidentally committed secrets).
+- **Gate** the deploy job: it only runs if all checks pass, only when triggered by hand, and with protected credentials. OIDC lets GitHub get temporary AWS access without stored keys.
+- Don't turn off checks just because Juice Shop is vulnerable. Scanning the app itself is optional.
+
+**9. Cost.** Use trial credits, estimate the cost of a short run (VMs, disks, public IPs), and tear everything down afterwards.
+
+**10. Submission.** Hand in a repo or zip with Terraform, scripts, the CI workflow and a short README. The README needs these sections:
+- prerequisites;
+- deploy, verify and teardown commands;
+- architecture;
+- estimated cost;
+- actual effort;
+- AI use (be honest: AI is allowed, hiding it isn't);
+- incomplete items (be honest here too).
+
+It also needs redacted evidence: VPN connected, WAF blocking, and a fresh Wazuh event.
+
+## The flow in one line
+
+`you → VPN → WAF → Juice Shop → logs → Wazuh agent → Wazuh → verifier finds the marker`
+
+## What they are really grading
+
+- **Does it work end to end?** The proof is the evidence. Code that "looks right" but was never run is the biggest risk.
+- **Is it secure by design?** Closed ports, private origin, no secrets in git, locked-down state.
+- **Is it repeatable?** One command, safe reruns, clean teardown.
+- **Are you honest?** Real effort, real cost, real gaps.
+- **Can you explain and change it live?** This matters as much as the code. Expect questions like "why this firewall rule?" or "change the blocked payload to SQL injection".
+
+## Key terms to know cold
+
+- **VPC and security group:** your private cloud network and its per-server firewall.
+- **IAM role and instance profile:** the permissions a server holds, with no stored passwords.
+- **SSM Parameter Store:** AWS's safe place for secrets that servers fetch at boot.
+- **Cloud-init and user data:** the startup script a VM runs on first boot.
+- **NAT or masquerade:** how VPN traffic reaches other machines in the network through the VPN server.
+- **Idempotent:** running it twice gives the same result with no damage.
+
+## Where you are now
+
+Your repo covers almost every item above, but it has never run successfully end to end. I found several bugs that would stop Wazuh starting, and I gave you a patch for them. What's left is to redeploy, collect evidence, write the README sections (effort, cost, AI use), tear everything down, and study your own code. That is the part that matters most for the follow-up call.
+
+I can walk through any one piece in more depth, for example the WAF and VPN flow, or the verifier line by line.
